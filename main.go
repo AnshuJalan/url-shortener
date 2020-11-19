@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/anshujalan/url-shortener/urlshort"
+	"github.com/boltdb/bolt"
 )
 
 func buildMapHandler(fallback http.Handler) http.HandlerFunc {
@@ -40,7 +42,14 @@ func buildJSONHandler(fallback http.HandlerFunc) (http.HandlerFunc, error) {
 	return urlshort.JSONHandler([]byte(jsonData), fallback)
 }
 
+func buildDBHandler(fallback http.HandlerFunc) (http.HandlerFunc, error) {
+	prepareDB()
+
+	return urlshort.DBHandler([]byte("main"), fallback)
+}
+
 func main() {
+
 	mux := defaultMux()
 
 	mapHandler := buildMapHandler(mux)
@@ -55,8 +64,40 @@ func main() {
 		panic(err)
 	}
 
+	dbHander, err := buildDBHandler(jsonHander)
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Println("Starting the server on :8080")
-	http.ListenAndServe(":8080", jsonHander)
+	http.ListenAndServe(":8080", dbHander)
+}
+
+func prepareDB() {
+	db, err := bolt.Open("path.db", 0777, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("main"))
+		if err != nil {
+			return err
+		}
+
+		err = bucket.Put([]byte("/bolt"), []byte("https://github.com/boltdb/bolt"))
+		if err != nil {
+			return err
+		}
+
+		err = bucket.Put([]byte("/intro"), []byte("https://npf.io/2014/07/intro-to-boltdb-painless-performant-persistence/"))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 func defaultMux() *http.ServeMux {

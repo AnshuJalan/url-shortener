@@ -2,8 +2,10 @@ package urlshort
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/boltdb/bolt"
 	"gopkg.in/yaml.v2"
 )
 
@@ -48,6 +50,36 @@ func JSONHandler(jsn []byte, fallback http.HandlerFunc) (http.HandlerFunc, error
 	pathMapping := buildMapping(out)
 
 	return MapHandler(pathMapping, fallback), nil
+}
+
+//DBHandler builds the http.HandlerFunc from local BoltDB storage
+func DBHandler(bkt []byte, fallback http.HandlerFunc) (http.HandlerFunc, error) {
+	db, err := bolt.Open("path.db", 0777, nil)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		var val []byte
+		err = db.View(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket(bkt)
+
+			if bucket == nil {
+				fallback.ServeHTTP(w, r)
+				return nil
+			}
+			val = bucket.Get([]byte(r.URL.Path))
+
+			return nil
+		})
+
+		if err != nil {
+			fallback.ServeHTTP(w, r)
+			return
+		}
+		http.Redirect(w, r, string(val), http.StatusFound)
+	}, nil
 }
 
 type pathURL struct {
